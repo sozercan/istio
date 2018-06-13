@@ -32,7 +32,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	"istio.io/istio/pkg/log"
-	"istio.io/istio/security/pkg/pki/ca"
+	vault "istio.io/istio/security/pkg/adapter/vault"
 	"istio.io/istio/security/pkg/pki/util"
 )
 
@@ -80,7 +80,7 @@ type DNSNameEntry struct {
 
 // SecretController manages the service accounts' secrets that contains Istio keys and certificates.
 type SecretController struct {
-	ca             ca.CertificateAuthority
+	ca             vault.CertificateAuthority
 	certTTL        time.Duration
 	core           corev1.CoreV1Interface
 	minGracePeriod time.Duration
@@ -105,7 +105,7 @@ type SecretController struct {
 }
 
 // NewSecretController returns a pointer to a newly constructed SecretController instance.
-func NewSecretController(ca ca.CertificateAuthority, certTTL time.Duration, gracePeriodRatio float32, minGracePeriod time.Duration,
+func NewSecretController(ca vault.CertificateAuthority, certTTL time.Duration, gracePeriodRatio float32, minGracePeriod time.Duration,
 	core corev1.CoreV1Interface, forCA bool, namespace string, dnsNames map[string]DNSNameEntry) (*SecretController, error) {
 
 	if gracePeriodRatio < 0 || gracePeriodRatio > 1 {
@@ -322,7 +322,7 @@ func (sc *SecretController) generateKeyAndCert(saName string, saNamespace string
 	}
 
 	certChainPEM := sc.ca.GetCAKeyCertBundle().GetCertChainPem()
-	certPEM, err := sc.ca.Sign(csrPEM, sc.certTTL, sc.forCA)
+	certPEM, err := sc.ca.Sign(csrPEM, sc.certTTL)
 	if err != nil {
 		return nil, nil, err
 	}

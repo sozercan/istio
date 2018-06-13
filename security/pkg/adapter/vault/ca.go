@@ -46,7 +46,12 @@ const (
 
 // CA connects to Vault to sign certificates.
 type CA struct {
-	client *api.Client
+	client        *api.Client
+	keyCertBundle util.KeyCertBundle
+}
+
+type CAOptions struct {
+	KeyCertBundle util.KeyCertBundle
 }
 
 // CertificateAuthority contains methods to be supported by a CA.
@@ -58,8 +63,10 @@ type CertificateAuthority interface {
 }
 
 // New returns a new CA instance.
-func New() (*CA, error) {
-	ca := &CA{}
+func New(opts *CAOptions) (*CA, error) {
+	ca := &CA{
+		keyCertBundle: opts.KeyCertBundle,
+	}
 	client, err := getVaultConnection(vaultAddrForTesting, tokenForTesting)
 	if err != nil {
 		log.Errorf("Failed to connect to Vault")
@@ -71,7 +78,7 @@ func New() (*CA, error) {
 
 // GetCAKeyCertBundle
 func (v *CA) GetCAKeyCertBundle() util.KeyCertBundle {
-	return nil
+	return v.keyCertBundle
 }
 
 // Sign takes a PEM-encoded CSR and returns a signed certificate. If the CA is a multicluster CA,

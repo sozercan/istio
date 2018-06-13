@@ -59,7 +59,7 @@ func NewGrpcConnection(caAddr string, dialOptions []grpc.DialOption) (*GrpcConne
 	}, nil
 }
 
-// SendCSR sends a resquest to CA server and returns the response.
+// SendCSR sends a request to CA server and returns the response.
 func (c *GrpcConnection) SendCSR(req *pb.CsrRequest) (*pb.CsrResponse, error) {
 	client := pb.NewIstioCAServiceClient(c.connection)
 	return client.HandleCSR(context.Background(), req)

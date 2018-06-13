@@ -40,9 +40,6 @@ import (
 	pkiutil "istio.io/istio/security/pkg/pki/util"
 	"istio.io/istio/security/pkg/platform"
 	probecontroller "istio.io/istio/security/pkg/probe"
-	"istio.io/istio/security/pkg/registry"
-	"istio.io/istio/security/pkg/registry/kube"
-	caserver "istio.io/istio/security/pkg/server/ca"
 	"istio.io/istio/security/pkg/server/monitoring"
 )
 
@@ -323,6 +320,7 @@ func runCA() {
 	}
 
 	cs := createClientset()
+	var err error
 
 	if opts.useVault {
 		log.Info("Use Hashicorp Vault")
@@ -352,54 +350,54 @@ func runCA() {
 			fatalf("Failed to create secret controller: %v", err)
 		}
 
-	} else {
-		ca := createCA(cs.CoreV1())
-
-		// For workloads in K8s, we apply the configured workload cert TTL.
-		sc, err := controller.NewSecretController(ca, opts.workloadCertTTL, opts.workloadCertGracePeriodRatio,
-			opts.workloadCertMinGracePeriod, cs.CoreV1(), opts.signCACerts, opts.listenedNamespace, webhooks)
-		if err != nil {
-			fatalf("Failed to create secret controller: %v", err)
-		}
-
 		stopCh := make(chan struct{})
 		sc.Run(stopCh)
 
+	} else {
+		// ca := createCA(cs.CoreV1())
+
+		// For workloads in K8s, we apply the configured workload cert TTL.
+		// sc, err := controller.NewSecretController(ca, opts.workloadCertTTL, opts.workloadCertGracePeriodRatio,
+		// 	opts.workloadCertMinGracePeriod, cs.CoreV1(), opts.signCACerts, opts.listenedNamespace, webhooks)
+		// if err != nil {
+		// 	fatalf("Failed to create secret controller: %v", err)
+		// }
+
 	}
 
-	if opts.grpcPort > 0 {
-		// start registry if gRPC server is to be started
-		reg := registry.GetIdentityRegistry()
+	// if opts.grpcPort > 0 {
+	// 	// start registry if gRPC server is to be started
+	// 	reg := registry.GetIdentityRegistry()
 
-		// add certificate identity to the identity registry for the liveness probe check
-		if registryErr := reg.AddMapping(probecontroller.LivenessProbeClientIdentity,
-			probecontroller.LivenessProbeClientIdentity); registryErr != nil {
-			log.Errorf("Failed to add indentity mapping: %v", registryErr)
-		}
+	// 	// add certificate identity to the identity registry for the liveness probe check
+	// 	if registryErr := reg.AddMapping(probecontroller.LivenessProbeClientIdentity,
+	// 		probecontroller.LivenessProbeClientIdentity); registryErr != nil {
+	// 		log.Errorf("Failed to add indentity mapping: %v", registryErr)
+	// 	}
 
-		ch := make(chan struct{})
+	// 	ch := make(chan struct{})
 
-		// monitor service objects with "alpha.istio.io/kubernetes-serviceaccounts" annotation
-		serviceController := kube.NewServiceController(cs.CoreV1(), opts.listenedNamespace, reg)
-		serviceController.Run(ch)
+	// 	// monitor service objects with "alpha.istio.io/kubernetes-serviceaccounts" annotation
+	// 	serviceController := kube.NewServiceController(cs.CoreV1(), opts.listenedNamespace, reg)
+	// 	serviceController.Run(ch)
 
-		// monitor service account objects for istio mesh expansion
-		serviceAccountController := kube.NewServiceAccountController(cs.CoreV1(), opts.listenedNamespace, reg)
-		serviceAccountController.Run(ch)
+	// 	// monitor service account objects for istio mesh expansion
+	// 	serviceAccountController := kube.NewServiceAccountController(cs.CoreV1(), opts.listenedNamespace, reg)
+	// 	serviceAccountController.Run(ch)
 
-		// The CA API uses cert with the max workload cert TTL.
-		hostnames := append(strings.Split(opts.grpcHosts, ","), fqdn())
-		caServer, startErr := caserver.New(ca, opts.maxWorkloadCertTTL, opts.signCACerts, hostnames, opts.grpcPort)
-		if startErr != nil {
-			fatalf("Failed to create istio ca server: %v", startErr)
-		}
-		if serverErr := caServer.Run(); serverErr != nil {
-			// stop the registry-related controllers
-			ch <- struct{}{}
+	// 	// The CA API uses cert with the max workload cert TTL.
+	// 	hostnames := append(strings.Split(opts.grpcHosts, ","), fqdn())
+	// 	caServer, startErr := caserver.New(ca, opts.maxWorkloadCertTTL, opts.signCACerts, hostnames, opts.grpcPort)
+	// 	if startErr != nil {
+	// 		fatalf("Failed to create istio ca server: %v", startErr)
+	// 	}
+	// 	if serverErr := caServer.Run(); serverErr != nil {
+	// 		// stop the registry-related controllers
+	// 		ch <- struct{}{}
 
-			log.Warnf("Failed to start GRPC server with error: %v", serverErr)
-		}
-	}
+	// 		log.Warnf("Failed to start GRPC server with error: %v", serverErr)
+	// 	}
+	// }
 
 	monitorErrCh := make(chan error)
 	// Start the monitoring server.
@@ -417,15 +415,15 @@ func runCA() {
 
 	rotatorErrCh := make(chan error)
 	// Start CA client if the upstream CA address is specified.
-	if len(opts.cAClientConfig.CAAddress) != 0 {
-		rotator, creationErr := createKeyCertBundleRotator(ca.GetCAKeyCertBundle())
-		if creationErr != nil {
-			fatalf("Failed to create key cert bundle rotator: %v", creationErr)
-		}
-		go rotator.Start(rotatorErrCh)
-		log.Info("Key cert bundle rotator has started.")
-		defer rotator.Stop()
-	}
+	// if len(opts.cAClientConfig.CAAddress) != 0 {
+	// 	rotator, creationErr := createKeyCertBundleRotator(ca.GetCAKeyCertBundle())
+	// 	if creationErr != nil {
+	// 		fatalf("Failed to create key cert bundle rotator: %v", creationErr)
+	// 	}
+	// 	go rotator.Start(rotatorErrCh)
+	// 	log.Info("Key cert bundle rotator has started.")
+	// 	defer rotator.Stop()
+	// }
 
 	// Blocking until receives error.
 	for {
@@ -448,10 +446,14 @@ func createClientset() *kubernetes.Clientset {
 }
 
 func createVaultCA(core corev1.SecretsGetter) *vault.CA {
+	var caOpts *vault.CAOptions
 
-	vaultCA := vault.New()
+	vaultCA, err := vault.New(caOpts)
+	if err != nil {
+		fatalf("error createVaultCA %v", err)
+	}
 
-	return nil
+	return vaultCA
 }
 
 func createCA(core corev1.SecretsGetter) *ca.IstioCA {
