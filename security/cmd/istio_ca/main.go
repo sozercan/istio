@@ -31,6 +31,7 @@ import (
 	"istio.io/istio/pkg/log"
 	"istio.io/istio/pkg/probe"
 	"istio.io/istio/pkg/version"
+	"istio.io/istio/security/pkg/adapter/vault"
 	"istio.io/istio/security/pkg/caclient"
 	"istio.io/istio/security/pkg/caclient/protocol"
 	"istio.io/istio/security/pkg/cmd"
@@ -95,6 +96,8 @@ type cliOptions struct { // nolint: maligned
 	signingCertFile string
 	signingKeyFile  string
 	rootCertFile    string
+
+	useVault bool
 
 	selfSignedCA        bool
 	selfSignedCAOrg     string
@@ -189,6 +192,9 @@ func init() {
 	flags.StringVar(&opts.signingCertFile, "signing-cert", "", "Path to the CA signing certificate file")
 	flags.StringVar(&opts.signingKeyFile, "signing-key", "", "Path to the CA signing key file")
 	flags.StringVar(&opts.rootCertFile, "root-cert", "", "Path to the root certificate file")
+
+	// Vault plugin
+	flags.BoolVar(&opts.useVault, "use-vault", false, "Indicates whether to use Vault plugin.")
 
 	// Configuration if Citadel acts as a self signed CA.
 	flags.BoolVar(&opts.selfSignedCA, "self-signed-ca", false,
@@ -317,16 +323,49 @@ func runCA() {
 	}
 
 	cs := createClientset()
-	ca := createCA(cs.CoreV1())
-	// For workloads in K8s, we apply the configured workload cert TTL.
-	sc, err := controller.NewSecretController(ca, opts.workloadCertTTL, opts.workloadCertGracePeriodRatio,
-		opts.workloadCertMinGracePeriod, cs.CoreV1(), opts.signCACerts, opts.listenedNamespace, webhooks)
-	if err != nil {
-		fatalf("Failed to create secret controller: %v", err)
-	}
 
-	stopCh := make(chan struct{})
-	sc.Run(stopCh)
+	if opts.useVault {
+		log.Info("Use Hashicorp Vault")
+
+		// opts := pkiutil.CertOptions{
+		// 	Host:       "citadel-test",
+		// 	RSAKeySize: 2048,
+		// }
+
+		// csrPEM, privPEM, err := pkiutil.GenCSR(opts)
+		// if err != nil {
+		// 	fatalf("Cert generation failed %v", err)
+		// }
+
+		// // err = vault.RunProtoTypeSignCsrFlow()
+		// res, err := vault.Sign(csrPEM, time.Duration(4)*time.Minute)
+		// if err != nil {
+		// 	fatalf("Failed to sign cert %v", err)
+		// }
+
+		ca := createVaultCA(cs.CoreV1())
+
+		// For workloads in K8s, we apply the configured workload cert TTL.
+		sc, err := controller.NewSecretController(ca, opts.workloadCertTTL, opts.workloadCertGracePeriodRatio,
+			opts.workloadCertMinGracePeriod, cs.CoreV1(), opts.signCACerts, opts.listenedNamespace, webhooks)
+		if err != nil {
+			fatalf("Failed to create secret controller: %v", err)
+		}
+
+	} else {
+		ca := createCA(cs.CoreV1())
+
+		// For workloads in K8s, we apply the configured workload cert TTL.
+		sc, err := controller.NewSecretController(ca, opts.workloadCertTTL, opts.workloadCertGracePeriodRatio,
+			opts.workloadCertMinGracePeriod, cs.CoreV1(), opts.signCACerts, opts.listenedNamespace, webhooks)
+		if err != nil {
+			fatalf("Failed to create secret controller: %v", err)
+		}
+
+		stopCh := make(chan struct{})
+		sc.Run(stopCh)
+
+	}
 
 	if opts.grpcPort > 0 {
 		// start registry if gRPC server is to be started
@@ -406,6 +445,13 @@ func createClientset() *kubernetes.Clientset {
 		fatalf("Failed to create a clientset (error: %s)", err)
 	}
 	return cs
+}
+
+func createVaultCA(core corev1.SecretsGetter) *vault.CA {
+
+	vaultCA := vault.New()
+
+	return nil
 }
 
 func createCA(core corev1.SecretsGetter) *ca.IstioCA {
@@ -491,6 +537,10 @@ func createKeyCertBundleRotator(keycert pkiutil.KeyCertBundle) (keyCertBundleRot
 }
 
 func verifyCommandLineOptions() {
+	if opts.useVault {
+		return
+	}
+
 	if opts.selfSignedCA {
 		return
 	}

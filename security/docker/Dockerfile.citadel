@@ -6,4 +6,7 @@ ADD ca-certificates.tgz /
 WORKDIR /tmp/
 ADD istio_ca /usr/local/bin/istio_ca
 
+ADD istio_ca.pem /tmp/istio_ca.pem
+ADD workload-1.csr /tmp/workload-1.csr
+
 ENTRYPOINT [ "/usr/local/bin/istio_ca", "--self-signed-ca" ]

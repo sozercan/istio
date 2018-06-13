@@ -38,27 +38,67 @@ const (
 // Config for prototyping purpose
 // TODO (lei-tang): move the these config to ca_test.go
 const (
-	vaultAddrForTesting = "http://127.0.0.1:8200"
-	tokenForTesting     = "myroot"
-	testCAKeyCertFile   = "testdata/istio_ca.pem"
-	testCsrFile         = "testdata/workload-1.csr"
+	vaultAddrForTesting = "http://40.71.208.127:8200"
+	tokenForTesting     = "2c357949-c730-3c4d-bfdb-272397fd10bf"
+	testCAKeyCertFile   = "/tmp/istio_ca.pem"
+	testCsrFile         = "/tmp/workload-1.csr"
 )
 
 // CA connects to Vault to sign certificates.
 type CA struct {
+	client *api.Client
+}
+
+// CertificateAuthority contains methods to be supported by a CA.
+type CertificateAuthority interface {
+	// Sign generates a certificate for a workload or CA, from the given CSR and TTL.
+	Sign(csrPEM []byte, ttl time.Duration) ([]byte, error)
+	// GetCAKeyCertBundle returns the KeyCertBundle used by CA.
+	GetCAKeyCertBundle() util.KeyCertBundle
 }
 
 // New returns a new CA instance.
 func New() (*CA, error) {
-	return &CA{}, nil
+	ca := &CA{}
+	client, err := getVaultConnection(vaultAddrForTesting, tokenForTesting)
+	if err != nil {
+		log.Errorf("Failed to connect to Vault")
+	}
+
+	ca.client = client
+	return ca, nil
+}
+
+// GetCAKeyCertBundle
+func (v *CA) GetCAKeyCertBundle() util.KeyCertBundle {
+	return nil
 }
 
 // Sign takes a PEM-encoded CSR and returns a signed certificate. If the CA is a multicluster CA,
 // the signed certificate is a CA certificate (CA:TRUE in X509v3 Basic Constraints), otherwise, it is a workload
 // certificate.
 func (v *CA) Sign(csrPEM []byte, ttl time.Duration) ([]byte, error) {
-	return nil, fmt.Errorf("not implemented")
+	res, err := signCsr(v.client, signCsrPath, string(csrPEM))
+	if err != nil {
+		log.Errorf("signCsr() failed (error %v)", err)
+		return nil, err
+	}
+
+	//cert, nil := getBytes(res.Data["certificate"])
+
+	cert := fmt.Sprintf("%v", res.Data["certificate"])
+	return []byte(cert), nil
 }
+
+// func getBytes(key interface{}) ([]byte, error) {
+// 	var buf bytes.Buffer
+// 	enc := gob.NewEncoder(&buf)
+// 	err := enc.Encode(key)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	return buf.Bytes(), nil
+// }
 
 // SignCAServerCert signs the certificate for the Istio CA server (to serve the CSR, etc).
 func (v *CA) SignCAServerCert(csrPEM []byte, ttl time.Duration) ([]byte, error) {
@@ -95,7 +135,14 @@ func mountVaultPki(client *api.Client, caMountPoint string, caDescription string
 	var mountInput api.MountInput
 	mountInput.Description = caDescription
 	mountInput.Type = "pki"
-	err := client.Sys().Mount(caMountPoint, &mountInput)
+
+	err := client.Sys().Unmount(caMountPoint)
+	if err != nil {
+		log.Errorf("Unmount() failed (error %v)", err)
+		return err
+	}
+
+	err = client.Sys().Mount(caMountPoint, &mountInput)
 	if err != nil {
 		log.Errorf("Mount() failed (error %v)", err)
 		return err
